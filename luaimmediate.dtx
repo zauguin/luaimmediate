@@ -1,0 +1,221 @@
+% \iffalse meta-comment
+%
+%% Copyright (C) 2020 by Marcel Krueger
+%%
+%% This file may be distributed and/or modified under the
+%% conditions of the LaTeX Project Public License, either
+%% version 1.3c of this license or (at your option) any later
+%% version. The latest version of this license is in:
+%%
+%% http://www.latex-project.org/lppl.txt
+%%
+%% and version 1.3 or later is part of all distributions of
+%% LaTeX version 2005/12/01 or later.
+%
+%<*batch>
+%<*gobble>
+\ifx\jobname\relax\let\documentclass\undefined\fi
+\ifx\documentclass\undefined
+\csname fi\endcsname
+%</gobble>
+\input docstrip.tex
+\keepsilent
+\let\MetaPrefix\relax
+\preamble
+\endpreamble
+\postamble
+\endpostamble
+\def\MetaPrefix{--}
+\generate{%
+  \file{luaimmediate.lua}{\from{luaimmediate.dtx}{luacode}}%
+}
+\let\MetaPrefix\DoubleperCent
+\generate{%
+  \file{luaimmediate.sty}{\from{luaimmediate.dtx}{package}}
+  \file{luaimmediate.tex}{\from{luaimmediate.dtx}{tex-package}}}
+\endbatchfile
+%</batch>
+%<*gobble>
+\fi
+\expandafter\ifx\csname @currname\endcsname\empty
+\csname fi\endcsname
+%</gobble>
+%<*driver>
+\RequirePackage{luaimmediate}
+\documentclass{article}
+\usepackage{csquotes,doc,metalogo,hyperref,luacolor,tikzducks,pict2e}
+\RecordChanges
+\MakeShortVerb\|
+\begin{document}
+\DocInput{luaimmediate.dtx}
+\PrintIndex
+\PrintChanges
+\end{document}
+%</driver>
+%<*gobble>
+\fi
+%</gobble>
+% \fi
+%
+% \GetFileInfo{luaimmediate.sty}
+% \title{The luaimmediate package\thanks{This document
+%        corresponds to luaimmediate~\fileversion, dated~\filedate.}}
+% \author{Marcel Kr\"uger \\ \href{mailto:tex@2krueger.de}{tex@2krueger.de}}
+%
+% \maketitle
+% Overwrite \texttt{\string\immediate} with a Lua wrapper which allows commands defined by
+% \texttt{\string\luadef} to react to the presence of \texttt{\string\immediate}.
+%
+% If you have a command \texttt{\string\example} defined by \texttt{\string\luadef\string\example42},
+% then you can allow it to appear after \texttt{\string\immediate} by writing
+% |\string\luaotfload\string{require'luaimmediate'('example', true)\string}|.
+% Then the first argument to the corresponding Lua function will be \texttt{"immediate"}
+% if the command is used after \texttt{\string\immediate}.
+% By passing a function instead of \texttt{true}, an independent replacement function can
+% be used instead specifically for use in an \texttt{\string\immediate} context.
+% 
+% \StopEventually{}
+% \section{The implementation}
+% \changes{0.0.1}{2020-04-09}{Initial release}
+% \subsection{Lua module}
+% Now we can define our main Lua module:
+% \iffalse
+%<*gobble>
+\RequirePackage{docstrip-luacode}
+\begin{docstrip-luacode}{luaimmediate}
+%</gobble>
+%<*luacode>
+% \fi
+%    \begin{macrocode}
+local extension_cmd = token.command_id'extension'
+local lua_function_call_cmd = token.command_id'lua_function_call'
+local lua_call_cmd = token.command_id'lua_call'
+local immediate_code = 4
+local minus_token = token.new(0x2D, 12)
+local immediate_token = token.new(immediate_code, extension_cmd)
+
+local scan_token = token.scan_token
+local put_next = token.put_next
+
+local immediate_lookup = {}
+
+local function new_immediate()
+  local token = scan_token()
+  local tok = (token.command << 21) | token.mode
+  immediate_function = immediate_lookup[tok]
+  if immediate_function then
+    return immediate_function()
+  else
+    put_next(immediate_token, token)
+  end
+end
+local functions = lua.get_functions_table()
+local immediate_func = luatexbase and luatexbase.new_luafunction'immediate' or string.unpack(">I", 'imme')
+functions[immediate_func] = new_immediate
+token.set_lua('immediate', immediate_func, 'protected', 'global')
+immediate_lookup[token.new(immediate_func, lua_call_cmd).tok] = new_immediate -- Actually not necessary, but doesn't hurt either
+
+return function(id, func)
+  if not token.is_token(id) then
+    local tid = type(id)
+    if tid == 'string' then
+      if not token.is_defined(id) then
+        error('Attempt to define an immediate meaning to an undefined csname.')
+      end
+      id = token.create(id)
+    elseif tid == 'number' then
+      id = math.tointeger(id)
+      if (not id) or id <= 0 then
+        error('Invalid number passed to luaimmediate.')
+      end
+      id = token.new(id, lua_call_cmd)
+    else
+      error('Invalid argument passed to luaimmediate.')
+    end
+  end
+  local idtok = (id.command << 21) | id.mode
+  if func == nil then
+    return immediate_lookup[idtok]
+  elseif func == true then
+    if id.command ~= lua_call_cmd then
+      error[[Explicit function required for weird immediate tokens.]]
+    end
+    local i = id.mode -- We are caching |i|, not |functions[i]|.
+                      -- This allows the function to be changed later. If the immediate functions should be fixed, pass an explicit function.
+    func = function()
+      return functions[i]'immediate'
+    end
+  end
+  immediate_lookup[idtok] = func or nil
+end
+%    \end{macrocode}
+% \iffalse
+%</luacode>
+%<*gobble>
+\end{docstrip-luacode}
+%</gobble>
+% \fi
+% \subsection{\TeX\ support package}
+% Most of the time this \TeX\ helper is not needed, but sometimes it can be useful
+% \texttt{\immediate} is redefined early enough.
+% \iffalse
+%<*package|tex-package>
+%<*package>
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage
+  {luaimmediate}
+  [2020/04/09 v0.0.1 Allow Lua commands to react to immediate]
+%</package>
+% \fi
+% Only \LuaLaTeX{} is supported.
+% For other engines we show an error.
+%    \begin{macrocode}
+\ifx\directlua\undefined
+%    \end{macrocode}
+% \iffalse
+%<*gobble>
+\iffalse
+%</gobble>
+% \fi \fi
+%    \begin{macrocode}
+%<*tex-package>
+  \begingroup
+    \ifx\PackageError\undefined
+      \def\PackageError#1#2#3{\errhelp{#3}\errmessage{#1: #2}}
+    \fi
+%</tex-package>
+%    \end{macrocode}
+% \iffalse \iffalse
+%<*gobble>
+\fi
+%</gobble>
+% \fi
+%    \begin{macrocode}
+    \PackageError{lua-ul}{LuaLaTeX required}%
+    {luaimmediate requires LuaLaTeX.
+     Maybe you forgot to switch the engine in your editor?}
+%    \end{macrocode}
+% \iffalse
+%<*gobble>
+\iffalse
+%</gobble>
+% \fi \fi
+%    \begin{macrocode}
+%<*tex-package>
+  \endgroup
+%</tex-package>
+%    \end{macrocode}
+% \iffalse \iffalse
+%<*gobble>
+\fi
+%</gobble>
+% \fi
+%    \begin{macrocode}
+\fi
+\directlua{require'luaimmediate'}
+\endinput
+%    \end{macrocode}
+% \iffalse
+%</package|tex-package>
+% \fi
+% \Finale
