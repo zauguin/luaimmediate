@@ -68,7 +68,9 @@
 %
 % If you have a command \texttt{\string\example} defined by \texttt{\string\luadef\string\example42},
 % then you can allow it to appear after \texttt{\string\immediate} by writing
-% |\string\luaotfload\string{require'luaimmediate'('example', true)\string}|.
+% \begin{verbatim}
+% \directlua {require'luaimmediate'('example', true)}
+% \end{verbatim}
 % Then the first argument to the corresponding Lua function will be \texttt{"immediate"}
 % if the command is used after \texttt{\string\immediate}.
 % By passing a function instead of \texttt{true}, an independent replacement function can
@@ -110,17 +112,24 @@ local function new_immediate()
   end
 end
 local functions = lua.get_functions_table()
-local immediate_func = luatexbase and luatexbase.new_luafunction'immediate' or string.unpack(">I", 'imme')
+local immediate_func = luatexbase
+                         and luatexbase.new_luafunction'immediate'
+                         or (string.unpack(">I", 'imm') & 0x1FFFFF)
 functions[immediate_func] = new_immediate
 token.set_lua('immediate', immediate_func, 'protected', 'global')
-immediate_lookup[token.new(immediate_func, lua_call_cmd).tok] = new_immediate -- Actually not necessary, but doesn't hurt either
+%    \end{macrocode}
+% The next technically is not necessary, but it does not hurt either.
+%    \begin{macrocode}
+immediate_lookup[token.new(immediate_func, lua_call_cmd).tok]
+    = new_immediate
 
 return function(id, func)
   if not token.is_token(id) then
     local tid = type(id)
     if tid == 'string' then
       if not token.is_defined(id) then
-        error('Attempt to define an immediate meaning to an undefined csname.')
+        error('Attempt to define an immediate meaning to an \z
+          undefined csname.')
       end
       id = token.create(id)
     elseif tid == 'number' then
@@ -140,8 +149,12 @@ return function(id, func)
     if id.command ~= lua_call_cmd then
       error[[Explicit function required for weird immediate tokens.]]
     end
-    local i = id.mode -- We are caching |i|, not |functions[i]|.
-                      -- This allows the function to be changed later. If the immediate functions should be fixed, pass an explicit function.
+%    \end{macrocode}
+% Now we cache |i|, not |functions[i]|. Therefore we pick up changes to
+% |functions[i]| at some later point. That is by design, if you do want
+% to avoid it, just pass a function instead.
+%    \begin{macrocode}
+    local i = id.mode
     func = function()
       return functions[i]'immediate'
     end
@@ -156,17 +169,19 @@ end
 %</gobble>
 % \fi
 % \subsection{\TeX\ support package}
-% Most of the time this \TeX\ helper is not needed, but sometimes it can be useful
-% \texttt{\immediate} is redefined early enough.
+% Most of the time this \TeX\ helper is not needed, but sometimes it can be useful to ensure
+% |\immediate| is redefined early enough.
 % \iffalse
 %<*package|tex-package>
+% \fi
+%    \begin{macrocode}
 %<*package>
 \NeedsTeXFormat{LaTeX2e}
 \ProvidesPackage
   {luaimmediate}
   [2020/04/09 v0.0.1 Allow Lua commands to react to immediate]
 %</package>
-% \fi
+%    \end{macrocode}
 % Only \LuaLaTeX{} is supported.
 % For other engines we show an error.
 %    \begin{macrocode}
@@ -212,6 +227,10 @@ end
 % \fi
 %    \begin{macrocode}
 \fi
+%    \end{macrocode}
+% The actual functionality is not that interesting: We just load the
+% Lua module.
+%    \begin{macrocode}
 \directlua{require'luaimmediate'}
 \endinput
 %    \end{macrocode}
