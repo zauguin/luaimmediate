@@ -89,21 +89,30 @@
 %<*luacode>
 % \fi
 %    \begin{macrocode}
-local extension_cmd = token.command_id'extension'
-local lua_function_call_cmd = token.command_id'lua_function_call'
-local lua_call_cmd = token.command_id'lua_call'
-local immediate_code = 4
-local minus_token = token.new(0x2D, 12)
-local immediate_token = token.new(immediate_code, extension_cmd)
-
-local scan_token = token.scan_token
+local get_command = token.get_command
+local get_mode = token.get_mode
+local is_defined = token.is_defined
+local is_token = token.is_token
 local put_next = token.put_next
+local scan_token = token.scan_token
+local token_create = token.create
+local token_new = token.new
+
+local extension_cmd = token.command_id'extension'
+local lua_call_cmd = token.command_id'lua_call'
+local lua_function_call_cmd = token.command_id'lua_function_call'
+local immediate_code = 4
+local immediate_token = token.new(immediate_code, extension_cmd)
+local minus_token = token.new(0x2D, 12)
+
+local tointeger = math.tointeger
+local error = error
 
 local immediate_lookup = {}
 
 local function new_immediate()
   local token = scan_token()
-  local tok = (token.command << 21) | token.mode
+  local tok = (get_command(token) << 21) | get_mode(token)
   immediate_function = immediate_lookup[tok]
   if immediate_function then
     return immediate_function()
@@ -120,33 +129,33 @@ token.set_lua('immediate', immediate_func, 'protected', 'global')
 %    \end{macrocode}
 % The next technically is not necessary, but it does not hurt either.
 %    \begin{macrocode}
-immediate_lookup[token.new(immediate_func, lua_call_cmd).tok]
+immediate_lookup[(lua_call_cmd << 21) | immediate_func]
     = new_immediate
 
 return function(id, func)
-  if not token.is_token(id) then
+  if not is_token(id) then
     local tid = type(id)
     if tid == 'string' then
-      if not token.is_defined(id) then
+      if not is_defined(id) then
         error('Attempt to define an immediate meaning to an \z
           undefined csname.')
       end
-      id = token.create(id)
+      id = token_create(id)
     elseif tid == 'number' then
-      id = math.tointeger(id)
+      id = tointeger(id)
       if (not id) or id <= 0 then
         error('Invalid number passed to luaimmediate.')
       end
-      id = token.new(id, lua_call_cmd)
+      id = token_new(id, lua_call_cmd)
     else
       error('Invalid argument passed to luaimmediate.')
     end
   end
-  local idtok = (id.command << 21) | id.mode
+  local idtok = (get_command(id) << 21) | get_mode(id)
   if func == nil then
     return immediate_lookup[idtok]
   elseif func == true then
-    if id.command ~= lua_call_cmd then
+    if get_command(id) ~= lua_call_cmd then
       error[[Explicit function required for weird immediate tokens.]]
     end
 %    \end{macrocode}
@@ -154,7 +163,7 @@ return function(id, func)
 % |functions[i]| at some later point. That is by design, if you do want
 % to avoid it, just pass a function instead.
 %    \begin{macrocode}
-    local i = id.mode
+    local i = get_mode(id)
     func = function()
       return functions[i]'immediate'
     end
